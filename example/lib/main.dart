@@ -52,7 +52,7 @@ class _SingleSessionTabState extends State<SingleSessionTab> {
 
   @override
   void initState() {
-    super.initState(); 
+    super.initState();
     _loadSimCards();
   }
 
@@ -131,7 +131,8 @@ class _SingleSessionTabState extends State<SingleSessionTab> {
           const Text('Réponse USSD :'),
           Text(
             _ussdResponse,
-            style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.blue, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -155,7 +156,7 @@ class MultiSessionTab extends StatefulWidget {
 class _MultiSessionTabState extends State<MultiSessionTab> {
   final TextEditingController _ussdController = TextEditingController();
   final List<TextEditingController> _optionControllers = [];
-  List<String> _ussdMessages = []; // Liste pour stocker les messages USSD
+  String _lastUssdResponse = ''; // Dernier message USSD reçu
   bool _isLoading = false;
   List<Map<String, dynamic>> _simCards = [];
   int? _selectedSlotIndex;
@@ -175,10 +176,15 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
   void _onUssdMessageReceived(String message) {
     print("Message USSD reçu: $message"); // Journalisation
     setState(() {
-      // Ne garder que le dernier message
-      _ussdMessages = [message];
-      if (message.contains("completed") || message.contains("cancelled")) {
+      // Vérifier si c'est un message de fin de session
+      if (message.contains("SESSION_COMPLETED") ||
+          message.contains("completed") ||
+          message.contains("cancelled")) {
         _sessionStatus = "Session USSD terminée.";
+        _isLoading = false;
+      } else {
+        // Ne garder que le dernier message USSD significatif
+        _lastUssdResponse = message;
       }
     });
   }
@@ -201,12 +207,13 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
   void _launchMultiSessionUssd() async {
     setState(() {
       _isLoading = true;
-      _ussdMessages.clear(); // Réinitialiser la liste au début d'une nouvelle session
+      _lastUssdResponse = ''; // Réinitialiser au début d'une nouvelle session
       _sessionStatus = '';
     });
 
     try {
-      List<String> options = _optionControllers.map((controller) => controller.text).toList();
+      List<String> options =
+          _optionControllers.map((controller) => controller.text).toList();
 
       await UssdLauncher.multisessionUssd(
         code: _ussdController.text,
@@ -225,7 +232,7 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
 
   void _updateUssdMessages(String newText) {
     setState(() {
-      _ussdMessages.add(newText);
+      _lastUssdResponse = newText;
     });
   }
 
@@ -274,7 +281,8 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
             const SizedBox(height: 16),
             TextField(
               controller: _ussdController,
-              decoration: const InputDecoration(labelText: 'Entrer le code USSD'),
+              decoration:
+                  const InputDecoration(labelText: 'Entrer le code USSD'),
             ),
             ..._optionControllers.asMap().entries.map((entry) {
               return Padding(
@@ -282,7 +290,8 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
                 child: TextField(
                   controller: entry.value,
                   keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: 'Option ${entry.key + 1}'),
+                  decoration:
+                      InputDecoration(labelText: 'Option ${entry.key + 1}'),
                 ),
               );
             }),
@@ -295,7 +304,8 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
                   child: const Text('Ajouter Option'),
                 ),
                 ElevatedButton(
-                  onPressed: _optionControllers.isNotEmpty ? _removeOptionField : null,
+                  onPressed:
+                      _optionControllers.isNotEmpty ? _removeOptionField : null,
                   child: const Text('Retirer Option'),
                 ),
               ],
@@ -306,34 +316,38 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
               child: const Text('Lancer USSD Multi-Session'),
             ),
             const SizedBox(height: 16),
-            const Text('Réponses USSD :'),
+            const Text('Réponse USSD :',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             Container(
-              height: 200,
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 100),
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.blueAccent),
                 borderRadius: BorderRadius.circular(8.0),
+                color: Colors.grey[50],
               ),
-              padding: const EdgeInsets.all(8.0),
-              child: ListView.builder(
-                itemCount: _ussdMessages.length,
-                itemBuilder: (context, index) {
-                  final isLastMessage = index == _ussdMessages.length - 1;
-                  return Text(
-                    _ussdMessages[index],
-                    style: TextStyle(
-                      color: isLastMessage ? Colors.red : Colors.blue,
-                      fontWeight: isLastMessage ? FontWeight.bold : FontWeight.normal,
-                      fontSize: isLastMessage ? 16 : 14,
+              padding: const EdgeInsets.all(12.0),
+              child: _lastUssdResponse.isEmpty
+                  ? const Text(
+                      'En attente de réponse...',
+                      style: TextStyle(
+                          color: Colors.grey, fontStyle: FontStyle.italic),
+                    )
+                  : Text(
+                      _lastUssdResponse,
+                      style: const TextStyle(
+                        color: Colors.blue,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
-                  );
-                },
-              ),
             ),
             const SizedBox(height: 16),
             if (_sessionStatus.isNotEmpty)
               Text(
                 _sessionStatus,
-                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    color: Colors.green, fontWeight: FontWeight.bold),
               ),
           ],
         ),

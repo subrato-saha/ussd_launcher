@@ -47,6 +47,7 @@ class UssdLauncherPlugin: FlutterPlugin, MethodCallHandler {
             "sendUssdRequest" -> {
                 if (!isAccessibilityServiceEnabled()) {
                     openAccessibilitySettings()
+                    result.error("ACCESSIBILITY_NOT_ENABLED", "Please enable accessibility service for USSD Launcher", null)
                     return
                 }
                 
@@ -61,6 +62,7 @@ class UssdLauncherPlugin: FlutterPlugin, MethodCallHandler {
             "multisessionUssd" -> {
                 if (!isAccessibilityServiceEnabled()) {
                     openAccessibilitySettings()
+                    result.error("ACCESSIBILITY_NOT_ENABLED", "Please enable accessibility service for USSD Launcher", null)
                     return
                 }
     

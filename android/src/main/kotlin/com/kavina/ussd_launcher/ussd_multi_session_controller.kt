@@ -104,6 +104,7 @@ class UssdMultiSession(private val context: Context) {
             
             this.isRunning = true
             setHideDialogs(true)
+            startOverlay("Exécution du code USSD...")
             
             context.startActivity(getActionCallIntent(uri, simSlot))
 
@@ -125,6 +126,7 @@ class UssdMultiSession(private val context: Context) {
             println("UssdMultiSession: All options processed, ending session")
             try {
                 cancelSession()
+                stopOverlay()
                 this.callbackInvoke?.over("SESSION_COMPLETED")
             } catch (e: Exception) {
                 println("UssdMultiSession: Error ending session: ${e.message}")
@@ -136,6 +138,7 @@ class UssdMultiSession(private val context: Context) {
     private fun sendUssdOption(option: String) {
         try {
             println("UssdMultiSession: Sending option '$option'...")
+            updateOverlay("Envoi de l'option : $option")
             UssdAccessibilityService.sendReply(listOf(option))
             
             // Wait for the reply to be processed and next dialog to appear
@@ -237,6 +240,7 @@ class UssdMultiSession(private val context: Context) {
         if (isRunning) {
             isRunning = false
             setHideDialogs(false)
+            stopOverlay()
             
             try {
                 UssdAccessibilityService.cancelSession()
@@ -252,6 +256,37 @@ class UssdMultiSession(private val context: Context) {
 
     fun setHideDialogs(hide: Boolean) {
         UssdAccessibilityService.hideDialogs = hide
+    }
+    
+    private fun startOverlay(message: String) {
+        if (verifyOverlay()) {
+            try {
+                val intent = Intent(context, UssdOverlayService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                UssdOverlayService.updateMessage(message)
+            } catch (e: Exception) {
+                println("UssdMultiSession: Error starting overlay: ${e.message}")
+            }
+        }
+    }
+    
+    private fun updateOverlay(message: String) {
+        if (UssdOverlayService.isRunning()) {
+            UssdOverlayService.updateMessage(message)
+        }
+    }
+    
+    private fun stopOverlay() {
+        try {
+            val intent = Intent(context, UssdOverlayService::class.java)
+            context.stopService(intent)
+        } catch (e: Exception) {
+            println("UssdMultiSession: Error stopping overlay: ${e.message}")
+        }
     }
     
     fun isSessionRunning(): Boolean = isRunning

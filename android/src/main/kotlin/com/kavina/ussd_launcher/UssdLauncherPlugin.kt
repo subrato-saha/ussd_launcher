@@ -53,6 +53,11 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
                 result.success(null)
             }
             "cancelSession" -> ussdMultiSession.cancelSession(result)
+            "isOverlayPermissionGranted" -> result.success(UssdOverlayService.canDrawOverlay(context))
+            "openOverlaySettings" -> {
+                UssdOverlayService.openOverlaySettings(context)
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }

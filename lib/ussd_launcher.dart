@@ -139,4 +139,29 @@ class UssdLauncher {
       print("UssdLauncher: Error cancelling session: ${e.message}");
     }
   }
+
+  /// Checks if the overlay permission (SYSTEM_ALERT_WINDOW) is granted.
+  ///
+  /// This permission is required to show the overlay during USSD sessions.
+  static Future<bool> isOverlayPermissionGranted() async {
+    try {
+      final bool isGranted =
+          await _channel.invokeMethod('isOverlayPermissionGranted');
+      return isGranted;
+    } on PlatformException catch (e) {
+      print("UssdLauncher: Error checking overlay permission: ${e.message}");
+      return false;
+    }
+  }
+
+  /// Opens the system overlay permission settings.
+  ///
+  /// Use this to guide users to enable the "Draw over other apps" permission.
+  static Future<void> openOverlaySettings() async {
+    try {
+      await _channel.invokeMethod('openOverlaySettings');
+    } on PlatformException catch (e) {
+      print("UssdLauncher: Error opening overlay settings: ${e.message}");
+    }
+  }
 }

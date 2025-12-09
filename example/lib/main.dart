@@ -204,6 +204,41 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
     }
   }
 
+  Future<void> _checkOverlayPermission() async {
+    final isGranted = await UssdLauncher.isOverlayPermissionGranted();
+    if (!isGranted) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Permission requise'),
+            content: const Text(
+                'Pour masquer le dialogue USSD, l\'application a besoin de la permission "Superposition sur d\'autres applications".'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  UssdLauncher.openOverlaySettings();
+                },
+                child: const Text('Ouvrir les paramètres'),
+              ),
+            ],
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permission d\'overlay déjà accordée')),
+        );
+      }
+    }
+  }
+
   void _launchMultiSessionUssd() async {
     setState(() {
       _isLoading = true;
@@ -309,6 +344,12 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
                   child: const Text('Retirer Option'),
                 ),
               ],
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: _checkOverlayPermission,
+              icon: const Icon(Icons.layers),
+              label: const Text('Vérifier Permission Overlay'),
             ),
             const SizedBox(height: 16),
             ElevatedButton(

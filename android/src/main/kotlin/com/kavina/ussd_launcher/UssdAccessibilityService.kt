@@ -16,6 +16,21 @@ class UssdAccessibilityService : AccessibilityService() {
         private var instance: UssdAccessibilityService? = null
         private var pendingMessages: ArrayDeque<String> = ArrayDeque()
         var hideDialogs = false
+        private var lastUssdMessage: String? = null
+        
+        // Packages that can display USSD dialogs
+        private val USSD_PACKAGES = setOf(
+            "com.android.phone",
+            "com.samsung.android.phone",
+            "com.android.server.telecom",
+            "com.android.dialer",
+            "com.google.android.dialer",
+            "com.sec.android.app.telephonyui",
+            "com.huawei.systemmanager",
+            "com.miui.securitycenter",
+            "com.coloros.phonemanager",
+            "com.oppo.usercenter"
+        )
         
         // List of common confirm button texts in multiple languages
         private val CONFIRM_BUTTON_TEXTS = listOf(
@@ -51,6 +66,7 @@ class UssdAccessibilityService : AccessibilityService() {
                         root.recycle()
                     }
                     println("UssdAccessibilityService: USSD session cancelled")
+                    lastUssdMessage = null
                 } catch (e: Exception) {
                     println("UssdAccessibilityService: Error cancelling session: ${e.message}")
                 }
@@ -60,6 +76,10 @@ class UssdAccessibilityService : AccessibilityService() {
         }
         
         fun isServiceRunning(): Boolean = instance != null
+        
+        fun resetLastMessage() {
+            lastUssdMessage = null
+        }
     }
 
     private fun performReply() {
@@ -216,8 +236,74 @@ class UssdAccessibilityService : AccessibilityService() {
         return result
     }
 
+    /**
+     * Check if the event is from a USSD-related package
+     */
+    private fun isUssdPackage(packageName: String?): Boolean {
+        if (packageName == null) return false
+        return USSD_PACKAGES.any { ussdPkg -> 
+            packageName.lowercase(Locale.ROOT).contains(ussdPkg.lowercase(Locale.ROOT)) 
+        } || packageName.lowercase(Locale.ROOT).contains("phone") 
+          || packageName.lowercase(Locale.ROOT).contains("dialer")
+          || packageName.lowercase(Locale.ROOT).contains("telecom")
+    }
+
+    /**
+     * Validate if the message looks like a USSD response
+     */
+    private fun isValidUssdMessage(message: String): Boolean {
+        // Filter out common non-USSD messages
+        val lowerMessage = message.lowercase(Locale.ROOT)
+        
+        // Too short messages are likely not USSD
+        if (message.length < 3) return false
+        
+        // Filter out common system UI labels
+        val invalidPatterns = listOf(
+            "play store", "google play", "raccourci", "shortcut",
+            "services téléchargés", "downloaded services", 
+            "volume", "settings", "paramètres",
+            "notification", "battery", "batterie",
+            "wifi", "bluetooth", "airplane", "avion"
+        )
+        
+        if (invalidPatterns.any { lowerMessage.contains(it) }) {
+            return false
+        }
+        
+        // USSD messages typically contain certain patterns
+        val ussdPatterns = listOf(
+            "*", "#", "solde", "balance", "credit", "crédit",
+            "menu", "option", "appuyez", "press", "tapez", "enter",
+            "montant", "amount", "numéro", "number", "compte", "account",
+            "transfert", "transfer", "recharge", "envoi", "send",
+            "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "0.",
+            "1)", "2)", "3)", "4)", "5)", "6)", "7)", "8)", "9)", "0)",
+            "fcfa", "xof", "xaf", "francs", "cfa", "ariary", "mzn", "eur", "usd"
+        )
+        
+        // If it matches a USSD pattern, it's likely valid
+        if (ussdPatterns.any { lowerMessage.contains(it) }) {
+            return true
+        }
+        
+        // If message is long (typical USSD menus), accept it
+        if (message.length > 30) {
+            return true
+        }
+        
+        return false
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        
+        val packageName = event.packageName?.toString()
+        
+        // Only process events from USSD-related packages
+        if (!isUssdPackage(packageName)) {
+            return
+        }
         
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && hideDialogs) {
             performGlobalAction(GLOBAL_ACTION_BACK)
@@ -232,7 +318,13 @@ class UssdAccessibilityService : AccessibilityService() {
                 
                 try {
                     val ussdMessage = findUssdMessage(nodeInfo)
-                    if (!ussdMessage.isNullOrEmpty()) {
+                    
+                    // Validate and deduplicate messages
+                    if (!ussdMessage.isNullOrEmpty() && 
+                        isValidUssdMessage(ussdMessage) &&
+                        ussdMessage != lastUssdMessage) {
+                        
+                        lastUssdMessage = ussdMessage
                         UssdLauncherPlugin.onUssdResult(ussdMessage)
                     }
 
@@ -256,7 +348,11 @@ class UssdAccessibilityService : AccessibilityService() {
 
         // Check if this is a TextView with text
         if (node.className?.toString() == "android.widget.TextView" && node.text != null) {
-            return node.text.toString()
+            val text = node.text.toString()
+            // Only return non-empty meaningful text
+            if (text.isNotBlank() && text.length > 2) {
+                return text
+            }
         }
 
         // Recursively search children
@@ -289,6 +385,7 @@ class UssdAccessibilityService : AccessibilityService() {
         super.onDestroy()
         instance = null
         pendingMessages.clear()
+        lastUssdMessage = null
         println("UssdAccessibilityService: Service destroyed")
     }
 }

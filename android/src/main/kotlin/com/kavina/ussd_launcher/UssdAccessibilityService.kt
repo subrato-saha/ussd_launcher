@@ -17,8 +17,10 @@ class UssdAccessibilityService : AccessibilityService() {
         private var pendingMessages: ArrayDeque<String> = ArrayDeque()
         var hideDialogs = false
         private var lastUssdMessage: String? = null
-        private var waitingForDialog = false
         private var currentStepIndex = 0
+        private var retryCount = 0
+        private const val MAX_RETRIES = 5
+        private const val RETRY_DELAY_MS = 800L
         
         // Packages that can display USSD dialogs
         private val USSD_PACKAGES = setOf(
@@ -46,8 +48,9 @@ class UssdAccessibilityService : AccessibilityService() {
             println("UssdAccessibilityService: Setting pending messages: $messages")
             pendingMessages.clear()
             pendingMessages.addAll(messages)
-            waitingForDialog = true
-            currentStepIndex = 0
+            retryCount = 0
+            // Schedule retry attempts
+            instance?.scheduleReplyAttempt()
         }
 
         fun cancelSession() {
@@ -67,8 +70,9 @@ class UssdAccessibilityService : AccessibilityService() {
                     }
                     println("UssdAccessibilityService: USSD session cancelled")
                     lastUssdMessage = null
-                    waitingForDialog = false
                     currentStepIndex = 0
+                    retryCount = 0
+                    pendingMessages.clear()
                 } catch (e: Exception) {
                     println("UssdAccessibilityService: Error cancelling session: ${e.message}")
                 }
@@ -80,24 +84,37 @@ class UssdAccessibilityService : AccessibilityService() {
         fun resetLastMessage() {
             lastUssdMessage = null
             currentStepIndex = 0
+            retryCount = 0
         }
     }
 
+    private val handler = Handler(Looper.getMainLooper())
+    
     /**
-     * Try to perform reply when dialog is ready
+     * Schedule a reply attempt with retry logic
+     */
+    private fun scheduleReplyAttempt() {
+        handler.postDelayed({
+            tryPerformReply()
+        }, RETRY_DELAY_MS)
+    }
+
+    /**
+     * Try to perform reply with retry mechanism
      */
     private fun tryPerformReply() {
         if (pendingMessages.isEmpty()) {
-            waitingForDialog = false
+            retryCount = 0
             return
         }
 
         val message = pendingMessages.firstOrNull() ?: return
-        println("UssdAccessibilityService: Trying to reply with: $message")
+        println("UssdAccessibilityService: Attempt ${retryCount + 1}/$MAX_RETRIES - Trying to reply with: '$message'")
 
         val rootInActiveWindow = this.rootInActiveWindow
         if (rootInActiveWindow == null) {
-            println("UssdAccessibilityService: No active window, waiting...")
+            println("UssdAccessibilityService: No active window")
+            retryIfNeeded()
             return
         }
         
@@ -105,9 +122,10 @@ class UssdAccessibilityService : AccessibilityService() {
             val editText = findInputField(rootInActiveWindow)
 
             if (editText != null) {
-                // Remove the message from queue since we found the input
+                // Found the input field, proceed with reply
                 pendingMessages.removeFirstOrNull()
                 currentStepIndex++
+                retryCount = 0
                 
                 // Set text in the input field
                 val bundle = Bundle()
@@ -117,21 +135,56 @@ class UssdAccessibilityService : AccessibilityService() {
                 
                 editText.recycle()
 
-                // Find and click confirm button
-                val button = findConfirmButton(rootInActiveWindow)
-                if (button != null) {
-                    // Small delay before clicking to ensure text is set
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        val clickSuccess = button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        println("UssdAccessibilityService: [Step $currentStepIndex] Click 'Send': $clickSuccess")
-                        button.recycle()
-                    }, 500)
-                } else {
-                    println("UssdAccessibilityService: Confirm button not found, trying alternatives")
-                    tryAlternativeConfirmMethods(rootInActiveWindow)
-                }
+                // Find and click confirm button with a small delay
+                handler.postDelayed({
+                    clickConfirmButton()
+                }, 300)
             } else {
-                println("UssdAccessibilityService: Input field not found, dialog may not be ready")
+                println("UssdAccessibilityService: Input field not found, will retry...")
+                retryIfNeeded()
+            }
+        } catch (e: Exception) {
+            println("UssdAccessibilityService: Error in tryPerformReply: ${e.message}")
+            retryIfNeeded()
+        } finally {
+            rootInActiveWindow.recycle()
+        }
+    }
+    
+    /**
+     * Retry if max retries not reached
+     */
+    private fun retryIfNeeded() {
+        retryCount++
+        if (retryCount < MAX_RETRIES) {
+            println("UssdAccessibilityService: Scheduling retry ${retryCount + 1}/$MAX_RETRIES in ${RETRY_DELAY_MS}ms")
+            scheduleReplyAttempt()
+        } else {
+            println("UssdAccessibilityService: Max retries ($MAX_RETRIES) reached, giving up on current message")
+            // Move to next message
+            pendingMessages.removeFirstOrNull()
+            retryCount = 0
+            if (pendingMessages.isNotEmpty()) {
+                scheduleReplyAttempt()
+            }
+        }
+    }
+
+    /**
+     * Find and click the confirm button
+     */
+    private fun clickConfirmButton() {
+        val rootInActiveWindow = this.rootInActiveWindow ?: return
+        
+        try {
+            val button = findConfirmButton(rootInActiveWindow)
+            if (button != null) {
+                val clickSuccess = button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                println("UssdAccessibilityService: [Step $currentStepIndex] Click 'Send': $clickSuccess")
+                button.recycle()
+            } else {
+                println("UssdAccessibilityService: Confirm button not found, trying alternatives")
+                tryAlternativeConfirmMethods(rootInActiveWindow)
             }
         } finally {
             rootInActiveWindow.recycle()
@@ -184,24 +237,6 @@ class UssdAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             println("UssdAccessibilityService: Gesture failed: ${e.message}")
         }
-    }
-
-    private fun findClickableNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
-        val result = mutableListOf<AccessibilityNodeInfo>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-            if (node.isClickable && node != root) {
-                result.add(node)
-            }
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
-            }
-        }
-
-        return result
     }
 
     private fun findNodesByClassName(root: AccessibilityNodeInfo?, className: String): List<AccessibilityNodeInfo> {
@@ -299,12 +334,13 @@ class UssdAccessibilityService : AccessibilityService() {
                         }
                     }
 
-                    // If we have pending messages and dialog is showing, wait a bit then try to reply
-                    if (pendingMessages.isNotEmpty()) {
-                        // Wait for the dialog to be fully rendered before typing
-                        Handler(Looper.getMainLooper()).postDelayed({
+                    // If there are pending messages, try to reply
+                    // The dialog is now showing, so we can attempt to reply
+                    if (pendingMessages.isNotEmpty() && retryCount == 0) {
+                        // Reset retry count for new dialog
+                        handler.postDelayed({
                             tryPerformReply()
-                        }, 1500) // 1.5 second delay to let dialog stabilize
+                        }, 1000) // Wait 1s for dialog to fully render
                     }
                 } finally {
                     nodeInfo.recycle()
@@ -380,8 +416,9 @@ class UssdAccessibilityService : AccessibilityService() {
         instance = null
         pendingMessages.clear()
         lastUssdMessage = null
-        waitingForDialog = false
         currentStepIndex = 0
+        retryCount = 0
+        handler.removeCallbacksAndMessages(null)
         println("UssdAccessibilityService: Service destroyed")
     }
 }

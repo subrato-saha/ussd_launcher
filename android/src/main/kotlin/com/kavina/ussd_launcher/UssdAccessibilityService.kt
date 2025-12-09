@@ -317,6 +317,13 @@ class UssdAccessibilityService : AccessibilityService() {
                 val nodeInfo = event.source ?: return
                 
                 try {
+                    // Log all popup content for debugging
+                    println("╔══════════════════════════════════════════════════════════════")
+                    println("║ USSD POPUP CONTENT (Package: $packageName)")
+                    println("╠══════════════════════════════════════════════════════════════")
+                    logAllNodeContent(nodeInfo, 0)
+                    println("╚══════════════════════════════════════════════════════════════")
+                    
                     val ussdMessage = findUssdMessage(nodeInfo)
                     
                     // Validate and deduplicate messages
@@ -324,6 +331,7 @@ class UssdAccessibilityService : AccessibilityService() {
                         isValidUssdMessage(ussdMessage) &&
                         ussdMessage != lastUssdMessage) {
                         
+                        println(">>> USSD MESSAGE SENT TO FLUTTER: $ussdMessage")
                         lastUssdMessage = ussdMessage
                         UssdLauncherPlugin.onUssdResult(ussdMessage)
                     }
@@ -340,35 +348,82 @@ class UssdAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Log all content of the accessibility node tree for debugging
+     */
+    private fun logAllNodeContent(node: AccessibilityNodeInfo, depth: Int) {
+        val indent = "║  ".repeat(depth)
+        val className = node.className?.toString()?.substringAfterLast(".") ?: "Unknown"
+        val text = node.text?.toString() ?: ""
+        val contentDesc = node.contentDescription?.toString() ?: ""
+        
+        if (text.isNotEmpty() || contentDesc.isNotEmpty()) {
+            println("$indent[$className] text=\"$text\" desc=\"$contentDesc\"")
+        }
+        
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                logAllNodeContent(child, depth + 1)
+                // Note: We don't recycle here because we're just logging
+            }
+        }
+    }
+
+    /**
+     * Find the complete USSD message by collecting all TextViews content
+     */
     private fun findUssdMessage(node: AccessibilityNodeInfo): String? {
+        val allTexts = mutableListOf<String>()
+        collectAllTextViewContent(node, allTexts)
+        
+        if (allTexts.isEmpty()) return null
+        
+        // Filter out button texts and short labels, keep meaningful content
+        val meaningfulTexts = allTexts.filter { text ->
+            val lower = text.lowercase(Locale.ROOT)
+            // Exclude button labels
+            !CONFIRM_BUTTON_TEXTS.contains(lower) &&
+            lower != "annuler" && lower != "cancel" &&
+            // Keep texts longer than 5 chars or containing USSD patterns
+            (text.length > 5 || text.contains(".") || text.contains(")"))
+        }
+        
+        // Return the concatenated content, or the longest text
+        return if (meaningfulTexts.size > 1) {
+            // If there's a title and content, combine them nicely
+            meaningfulTexts.joinToString("\n").trim()
+        } else {
+            meaningfulTexts.firstOrNull()?.trim()
+        }
+    }
+    
+    /**
+     * Recursively collect all TextView content from the node tree
+     */
+    private fun collectAllTextViewContent(node: AccessibilityNodeInfo, texts: MutableList<String>) {
         // Skip input fields
         if (node.className?.toString() == "android.widget.EditText") {
-            return null
+            return
         }
 
-        // Check if this is a TextView with text
+        // Collect text from TextViews
         if (node.className?.toString() == "android.widget.TextView" && node.text != null) {
-            val text = node.text.toString()
-            // Only return non-empty meaningful text
-            if (text.isNotBlank() && text.length > 2) {
-                return text
+            val text = node.text.toString().trim()
+            if (text.isNotBlank() && text.length > 1) {
+                texts.add(text)
             }
         }
 
-        // Recursively search children
+        // Recursively process children
         for (i in 0 until node.childCount) {
             val childNode = node.getChild(i) ?: continue
             try {
-                val message = findUssdMessage(childNode)
-                if (message != null) {
-                    return message
-                }
+                collectAllTextViewContent(childNode, texts)
             } finally {
                 childNode.recycle()
             }
         }
-
-        return null
     }
 
     override fun onInterrupt() {

@@ -17,6 +17,8 @@ class UssdAccessibilityService : AccessibilityService() {
         private var pendingMessages: ArrayDeque<String> = ArrayDeque()
         var hideDialogs = false
         private var lastUssdMessage: String? = null
+        private var waitingForDialog = false
+        private var currentStepIndex = 0
         
         // Packages that can display USSD dialogs
         private val USSD_PACKAGES = setOf(
@@ -44,7 +46,8 @@ class UssdAccessibilityService : AccessibilityService() {
             println("UssdAccessibilityService: Setting pending messages: $messages")
             pendingMessages.clear()
             pendingMessages.addAll(messages)
-            instance?.performReply()
+            waitingForDialog = true
+            currentStepIndex = 0
         }
 
         fun cancelSession() {
@@ -52,26 +55,23 @@ class UssdAccessibilityService : AccessibilityService() {
                 try {
                     val rootInActiveWindow = service.rootInActiveWindow
                     rootInActiveWindow?.let { root ->
-                        // Try to find cancel button by ID
                         val cancelButton = root.findAccessibilityNodeInfosByViewId("android:id/button2")
                         val clicked = cancelButton?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
                         
                         if (!clicked) {
-                            // Fallback: use back action
                             service.performGlobalAction(GLOBAL_ACTION_BACK)
                         }
                         
-                        // Recycle nodes to prevent memory leak
                         cancelButton?.forEach { it.recycle() }
                         root.recycle()
                     }
                     println("UssdAccessibilityService: USSD session cancelled")
                     lastUssdMessage = null
+                    waitingForDialog = false
+                    currentStepIndex = 0
                 } catch (e: Exception) {
                     println("UssdAccessibilityService: Error cancelling session: ${e.message}")
                 }
-            } ?: run {
-                println("UssdAccessibilityService: Service instance not available for cancel")
             }
         }
         
@@ -79,62 +79,68 @@ class UssdAccessibilityService : AccessibilityService() {
         
         fun resetLastMessage() {
             lastUssdMessage = null
+            currentStepIndex = 0
         }
     }
 
-    private fun performReply() {
+    /**
+     * Try to perform reply when dialog is ready
+     */
+    private fun tryPerformReply() {
+        if (pendingMessages.isEmpty()) {
+            waitingForDialog = false
+            return
+        }
+
+        val message = pendingMessages.firstOrNull() ?: return
+        println("UssdAccessibilityService: Trying to reply with: $message")
+
+        val rootInActiveWindow = this.rootInActiveWindow
+        if (rootInActiveWindow == null) {
+            println("UssdAccessibilityService: No active window, waiting...")
+            return
+        }
+        
         try {
-            if (pendingMessages.isEmpty()) return
+            val editText = findInputField(rootInActiveWindow)
 
-            val message = pendingMessages.removeFirstOrNull() ?: return
-            println("UssdAccessibilityService: Performing reply with message: $message")
+            if (editText != null) {
+                // Remove the message from queue since we found the input
+                pendingMessages.removeFirstOrNull()
+                currentStepIndex++
+                
+                // Set text in the input field
+                val bundle = Bundle()
+                bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, message)
+                val setTextSuccess = editText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                println("UssdAccessibilityService: [Step $currentStepIndex] Set text '$message': $setTextSuccess")
+                
+                editText.recycle()
 
-            val rootInActiveWindow = this.rootInActiveWindow ?: return
-            
-            try {
-                val editText = findInputField(rootInActiveWindow)
-
-                if (editText != null) {
-                    // Set text in the input field
-                    val bundle = Bundle()
-                    bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, message)
-                    val setTextSuccess = editText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
-                    println("UssdAccessibilityService: Set text action performed: $setTextSuccess")
-                    
-                    // Recycle editText
-                    editText.recycle()
-
-                    // Find and click confirm button
-                    val button = findConfirmButton(rootInActiveWindow)
-                    if (button != null) {
+                // Find and click confirm button
+                val button = findConfirmButton(rootInActiveWindow)
+                if (button != null) {
+                    // Small delay before clicking to ensure text is set
+                    Handler(Looper.getMainLooper()).postDelayed({
                         val clickSuccess = button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        println("UssdAccessibilityService: Click action performed: $clickSuccess")
+                        println("UssdAccessibilityService: [Step $currentStepIndex] Click 'Send': $clickSuccess")
                         button.recycle()
-                        
-                        // Wait before sending next message
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            performReply()
-                        }, 3000)
-                    } else {
-                        println("UssdAccessibilityService: Confirm button not found, trying alternatives")
-                        tryAlternativeConfirmMethods(rootInActiveWindow)
-                    }
+                    }, 500)
                 } else {
-                    println("UssdAccessibilityService: Input field not found")
+                    println("UssdAccessibilityService: Confirm button not found, trying alternatives")
+                    tryAlternativeConfirmMethods(rootInActiveWindow)
                 }
-            } finally {
-                // Always recycle root node
-                rootInActiveWindow.recycle()
+            } else {
+                println("UssdAccessibilityService: Input field not found, dialog may not be ready")
             }
-        } catch (e: Exception) {
-            println("UssdAccessibilityService: Error in performReply: ${e.message}")
+        } finally {
+            rootInActiveWindow.recycle()
         }
     }
 
     private fun findInputField(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val editTexts = findNodesByClassName(root, "android.widget.EditText")
         val result = editTexts.firstOrNull()
-        // Recycle unused nodes
         editTexts.filter { it != result }.forEach { it.recycle() }
         return result
     }
@@ -145,46 +151,28 @@ class UssdAccessibilityService : AccessibilityService() {
             val buttonText = button.text?.toString()?.lowercase(Locale.ROOT) ?: ""
             CONFIRM_BUTTON_TEXTS.any { confirmText -> buttonText.contains(confirmText) }
         }
-        // Recycle unused buttons
         buttons.filter { it != confirmButton }.forEach { it.recycle() }
         return confirmButton
     }
 
     private fun tryAlternativeConfirmMethods(root: AccessibilityNodeInfo) {
-        // Method 1: Try clicking all buttons
         val allButtons = findNodesByClassName(root, "android.widget.Button")
         for (button in allButtons) {
-            println("UssdAccessibilityService: Attempting to click button: ${button.text}")
+            val buttonText = button.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+            // Skip cancel button
+            if (buttonText.contains("annuler") || buttonText.contains("cancel")) {
+                continue
+            }
+            println("UssdAccessibilityService: Clicking button: ${button.text}")
             val clickSuccess = button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (clickSuccess) {
-                println("UssdAccessibilityService: Successfully clicked button: ${button.text}")
-                // Recycle all buttons
                 allButtons.forEach { it.recycle() }
-                Handler(Looper.getMainLooper()).postDelayed({
-                    performReply()
-                }, 3000)
                 return
             }
         }
         allButtons.forEach { it.recycle() }
 
-        // Method 2: Try clicking all clickable nodes
-        val clickableNodes = findClickableNodes(root)
-        for (node in clickableNodes) {
-            println("UssdAccessibilityService: Attempting to click node: ${node.className}")
-            val clickSuccess = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (clickSuccess) {
-                println("UssdAccessibilityService: Successfully clicked node: ${node.className}")
-                clickableNodes.forEach { it.recycle() }
-                Handler(Looper.getMainLooper()).postDelayed({
-                    performReply()
-                }, 3000)
-                return
-            }
-        }
-        clickableNodes.forEach { it.recycle() }
-
-        // Method 3: Try gesture (empty path, just to trigger)
+        // Try gesture as last resort
         try {
             dispatchGesture(
                 GestureDescription.Builder()
@@ -193,9 +181,8 @@ class UssdAccessibilityService : AccessibilityService() {
                 null,
                 null
             )
-            println("UssdAccessibilityService: Dispatched gesture")
         } catch (e: Exception) {
-            println("UssdAccessibilityService: Gesture dispatch failed: ${e.message}")
+            println("UssdAccessibilityService: Gesture failed: ${e.message}")
         }
     }
 
@@ -236,9 +223,6 @@ class UssdAccessibilityService : AccessibilityService() {
         return result
     }
 
-    /**
-     * Check if the event is from a USSD-related package
-     */
     private fun isUssdPackage(packageName: String?): Boolean {
         if (packageName == null) return false
         return USSD_PACKAGES.any { ussdPkg -> 
@@ -248,17 +232,11 @@ class UssdAccessibilityService : AccessibilityService() {
           || packageName.lowercase(Locale.ROOT).contains("telecom")
     }
 
-    /**
-     * Validate if the message looks like a USSD response
-     */
     private fun isValidUssdMessage(message: String): Boolean {
-        // Filter out common non-USSD messages
         val lowerMessage = message.lowercase(Locale.ROOT)
         
-        // Too short messages are likely not USSD
         if (message.length < 3) return false
         
-        // Filter out common system UI labels
         val invalidPatterns = listOf(
             "play store", "google play", "raccourci", "shortcut",
             "services téléchargés", "downloaded services", 
@@ -271,28 +249,7 @@ class UssdAccessibilityService : AccessibilityService() {
             return false
         }
         
-        // USSD messages typically contain certain patterns
-        val ussdPatterns = listOf(
-            "*", "#", "solde", "balance", "credit", "crédit",
-            "menu", "option", "appuyez", "press", "tapez", "enter",
-            "montant", "amount", "numéro", "number", "compte", "account",
-            "transfert", "transfer", "recharge", "envoi", "send",
-            "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "0.",
-            "1)", "2)", "3)", "4)", "5)", "6)", "7)", "8)", "9)", "0)",
-            "fcfa", "xof", "xaf", "francs", "cfa", "ariary", "mzn", "eur", "usd"
-        )
-        
-        // If it matches a USSD pattern, it's likely valid
-        if (ussdPatterns.any { lowerMessage.contains(it) }) {
-            return true
-        }
-        
-        // If message is long (typical USSD menus), accept it
-        if (message.length > 30) {
-            return true
-        }
-        
-        return false
+        return true
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -317,27 +274,37 @@ class UssdAccessibilityService : AccessibilityService() {
                 val nodeInfo = event.source ?: return
                 
                 try {
-                    // Log all popup content for debugging
-                    println("╔══════════════════════════════════════════════════════════════")
-                    println("║ USSD POPUP CONTENT (Package: $packageName)")
-                    println("╠══════════════════════════════════════════════════════════════")
-                    logAllNodeContent(nodeInfo, 0)
-                    println("╚══════════════════════════════════════════════════════════════")
+                    // Get the complete dialog content
+                    val dialogContent = getCompleteDialogContent(nodeInfo)
                     
-                    val ussdMessage = findUssdMessage(nodeInfo)
-                    
-                    // Validate and deduplicate messages
-                    if (!ussdMessage.isNullOrEmpty() && 
-                        isValidUssdMessage(ussdMessage) &&
-                        ussdMessage != lastUssdMessage) {
+                    if (dialogContent != null && dialogContent.isNotBlank()) {
+                        // Log the complete dialog content
+                        println("")
+                        println("╔══════════════════════════════════════════════════════════════")
+                        println("║ 📱 USSD DIALOG - Step ${currentStepIndex + 1}")
+                        println("╠══════════════════════════════════════════════════════════════")
+                        dialogContent.lines().forEach { line ->
+                            if (line.isNotBlank()) {
+                                println("║ $line")
+                            }
+                        }
+                        println("╚══════════════════════════════════════════════════════════════")
+                        println("")
                         
-                        println(">>> USSD MESSAGE SENT TO FLUTTER: $ussdMessage")
-                        lastUssdMessage = ussdMessage
-                        UssdLauncherPlugin.onUssdResult(ussdMessage)
+                        // Send to Flutter if different from last message
+                        if (isValidUssdMessage(dialogContent) && dialogContent != lastUssdMessage) {
+                            lastUssdMessage = dialogContent
+                            println(">>> SENDING TO FLUTTER: ${dialogContent.take(50)}...")
+                            UssdLauncherPlugin.onUssdResult(dialogContent)
+                        }
                     }
 
+                    // If we have pending messages and dialog is showing, wait a bit then try to reply
                     if (pendingMessages.isNotEmpty()) {
-                        performReply()
+                        // Wait for the dialog to be fully rendered before typing
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            tryPerformReply()
+                        }, 1500) // 1.5 second delay to let dialog stabilize
                     }
                 } finally {
                     nodeInfo.recycle()
@@ -349,52 +316,27 @@ class UssdAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Log all content of the accessibility node tree for debugging
+     * Get the complete content of the USSD dialog
      */
-    private fun logAllNodeContent(node: AccessibilityNodeInfo, depth: Int) {
-        val indent = "║  ".repeat(depth)
-        val className = node.className?.toString()?.substringAfterLast(".") ?: "Unknown"
-        val text = node.text?.toString() ?: ""
-        val contentDesc = node.contentDescription?.toString() ?: ""
-        
-        if (text.isNotEmpty() || contentDesc.isNotEmpty()) {
-            println("$indent[$className] text=\"$text\" desc=\"$contentDesc\"")
-        }
-        
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null) {
-                logAllNodeContent(child, depth + 1)
-                // Note: We don't recycle here because we're just logging
-            }
-        }
-    }
-
-    /**
-     * Find the complete USSD message by collecting all TextViews content
-     */
-    private fun findUssdMessage(node: AccessibilityNodeInfo): String? {
+    private fun getCompleteDialogContent(node: AccessibilityNodeInfo): String? {
         val allTexts = mutableListOf<String>()
         collectAllTextViewContent(node, allTexts)
         
         if (allTexts.isEmpty()) return null
         
-        // Filter out button texts and short labels, keep meaningful content
+        // Filter out button texts and system labels
         val meaningfulTexts = allTexts.filter { text ->
             val lower = text.lowercase(Locale.ROOT)
-            // Exclude button labels
             !CONFIRM_BUTTON_TEXTS.contains(lower) &&
             lower != "annuler" && lower != "cancel" &&
-            // Keep texts longer than 5 chars or containing USSD patterns
-            (text.length > 5 || text.contains(".") || text.contains(")"))
+            lower != "message ussd" && lower != "ussd code" &&
+            text.length > 2
         }
         
-        // Return the concatenated content, or the longest text
-        return if (meaningfulTexts.size > 1) {
-            // If there's a title and content, combine them nicely
+        return if (meaningfulTexts.isNotEmpty()) {
             meaningfulTexts.joinToString("\n").trim()
         } else {
-            meaningfulTexts.firstOrNull()?.trim()
+            null
         }
     }
     
@@ -402,12 +344,10 @@ class UssdAccessibilityService : AccessibilityService() {
      * Recursively collect all TextView content from the node tree
      */
     private fun collectAllTextViewContent(node: AccessibilityNodeInfo, texts: MutableList<String>) {
-        // Skip input fields
         if (node.className?.toString() == "android.widget.EditText") {
             return
         }
 
-        // Collect text from TextViews
         if (node.className?.toString() == "android.widget.TextView" && node.text != null) {
             val text = node.text.toString().trim()
             if (text.isNotBlank() && text.length > 1) {
@@ -415,7 +355,6 @@ class UssdAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Recursively process children
         for (i in 0 until node.childCount) {
             val childNode = node.getChild(i) ?: continue
             try {
@@ -441,6 +380,8 @@ class UssdAccessibilityService : AccessibilityService() {
         instance = null
         pendingMessages.clear()
         lastUssdMessage = null
+        waitingForDialog = false
+        currentStepIndex = 0
         println("UssdAccessibilityService: Service destroyed")
     }
 }

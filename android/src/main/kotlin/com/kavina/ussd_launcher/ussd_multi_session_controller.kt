@@ -19,9 +19,9 @@ class UssdMultiSession(private val context: Context) {
     private var map: HashMap<String, HashSet<String>>? = null
     
     // Configurable delays (in milliseconds)
-    var initialDelayMs: Long = 3500
-    var optionDelayMs: Long = 2000
-    var replyDelayMs: Long = 3000
+    var initialDelayMs: Long = 5000  // Wait 5s for first dialog
+    var optionDelayMs: Long = 4000   // Wait 4s between options
+    var replyDelayMs: Long = 3000    // Wait 3s for dialog to render
 
     companion object {
         private const val KEY_ERROR = "KEY_ERROR"
@@ -135,8 +135,15 @@ class UssdMultiSession(private val context: Context) {
 
     private fun sendUssdOption(option: String) {
         try {
+            println("UssdMultiSession: Sending option '$option'...")
             UssdAccessibilityService.sendReply(listOf(option))
+            
+            // Wait for the reply to be processed and next dialog to appear
             Handler(Looper.getMainLooper()).postDelayed({
+                // Check if there are more options
+                if (ussdOptionsQueue.isNotEmpty()) {
+                    println("UssdMultiSession: Waiting for next dialog before sending next option...")
+                }
                 sendNextUssdOption()
             }, optionDelayMs)
         } catch (e: Exception) {

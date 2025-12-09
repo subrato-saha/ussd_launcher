@@ -117,7 +117,7 @@ class UssdMultiSession(private val context: Context) {
 
     private fun sendNextUssdOption() {
         if (ussdOptionsQueue.isNotEmpty()) {
-            val nextOption = ussdOptionsQueue.poll()
+            val nextOption = ussdOptionsQueue.removeFirstOrNull()
             if (nextOption != null) {
                 sendUssdOption(nextOption)
             }

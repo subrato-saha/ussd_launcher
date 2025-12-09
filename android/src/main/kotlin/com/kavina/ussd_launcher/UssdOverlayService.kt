@@ -15,6 +15,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.LinearLayout
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager

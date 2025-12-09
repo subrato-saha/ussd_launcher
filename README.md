@@ -8,6 +8,7 @@ A Flutter plugin to launch USSD requests and manage multi-step USSD sessions on 
 
 - ✅ Launch simple USSD requests (Android 5.0+)
 - ✅ Manage multi-step USSD sessions with automatic menu navigation
+- ✅ **Invisible Overlay**: Hides the system USSD dialogs during multi-session operations
 - ✅ Check and request necessary accessibility permissions
 - ✅ Full compatibility with Android 5.0+ (API 21+)
 - ✅ Handle USSD responses and errors gracefully
@@ -25,74 +26,42 @@ dependencies:
   ussd_launcher: ^1.3.0
 ```
 
-## Configuration
+## ⚙️ Setup
 
-### Android
+### Android Manifest
 
-Add the following permissions to your `AndroidManifest.xml`:
+The plugin automatically adds the necessary permissions and services to your merged manifest. However, ensure your `android/app/src/main/AndroidManifest.xml` includes the `xmlns:tools` attribute if you need to override anything.
 
-```xml
-<uses-permission android:name="android.permission.CALL_PHONE" />
-<uses-permission android:name="android.permission.READ_PHONE_STATE" />
-```
+Required permissions used by the plugin:
+- `CALL_PHONE`: To initiate calls.
+- `READ_PHONE_STATE`: To get SIM card information.
+- `BIND_ACCESSIBILITY_SERVICE`: To interact with USSD dialogs.
+- `SYSTEM_ALERT_WINDOW`: To show the overlay that hides USSD dialogs.
+- `FOREGROUND_SERVICE`: To keep the overlay service active.
 
-### For multi-session USSD
+### Accessibility Service
 
-Add the accessibility service configuration to your `AndroidManifest.xml` inside the `<application>` tag:
+For **Multi-Session USSD** and **Android < 8 Single Session**, the user **MUST** enable the Accessibility Service for your app.
 
-```xml
-<application>
-    ...
-    <service
-        android:name="com.kavina.ussd_launcher.UssdAccessibilityService"
-        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        android:exported="false">
-        <intent-filter>
-            <action android:name="android.accessibilityservice.AccessibilityService" />
-        </intent-filter>
-        <meta-data
-            android:name="android.accessibilityservice"
-            android:resource="@xml/accessibility_service_config" />
-    </service>
-</application>
-```
-
-## Usage
-
-### Import the package
+You can check and request this from your Flutter app:
 
 ```dart
-import 'package:ussd_launcher/ussd_launcher.dart';
-import 'package:permission_handler/permission_handler.dart';
-```
-
-### Check and request permissions
-
-```dart
-Future<bool> requestPermissions() async {
-  var phoneStatus = await Permission.phone.request();
-  return phoneStatus.isGranted;
-}
-```
-
-### Check if accessibility service is enabled
-
-```dart
-bool isEnabled = await UssdLauncher.isAccessibilityEnabled();
-if (!isEnabled) {
+if (!await UssdLauncher.isAccessibilityEnabled()) {
   await UssdLauncher.openAccessibilitySettings();
 }
 ```
 
-### Get available SIM cards
+### Overlay Permission (Optional)
+
+To hide the system USSD dialogs during a multi-session operation, the app needs the "Draw over other apps" permission.
 
 ```dart
-List<Map<String, dynamic>> simCards = await UssdLauncher.getSimCards();
-for (var sim in simCards) {
-  print('SIM: ${sim['displayName']} - ${sim['carrierName']}');
-  print('Slot: ${sim['slotIndex']}, ID: ${sim['subscriptionId']}');
+if (!await UssdLauncher.isOverlayPermissionGranted()) {
+  await UssdLauncher.openOverlaySettings();
 }
 ```
+
+## 📖 Usage
 
 ### Single-session USSD request
 
@@ -100,7 +69,7 @@ for (var sim in simCards) {
 try {
   String? response = await UssdLauncher.sendUssdRequest(
     ussdCode: '*123#',
-    subscriptionId: simCards[0]['subscriptionId'],
+    subscriptionId: 1, // Get this from UssdLauncher.getSimCards()
   );
   print('USSD Response: $response');
 } on PlatformException catch (e) {
@@ -114,13 +83,13 @@ try {
 ### Multi-session USSD with automatic menu navigation
 
 ```dart
-// Set up listener for USSD messages
+// 1. Set up listener for USSD messages
 UssdLauncher.setUssdMessageListener((message) {
   print('USSD Message: $message');
   // Handle the message in your UI
 });
 
-// Launch multi-session USSD
+// 2. Launch multi-session USSD
 await UssdLauncher.multisessionUssd(
   code: '*123#',
   slotIndex: 0,                    // First SIM slot
@@ -129,8 +98,18 @@ await UssdLauncher.multisessionUssd(
   optionDelayMs: 2000,             // Optional: delay between options
 );
 
-// Don't forget to remove listener when done
+// 3. Don't forget to remove listener when done
 UssdLauncher.removeUssdMessageListener();
+```
+
+### Get available SIM cards
+
+```dart
+List<Map<String, dynamic>> simCards = await UssdLauncher.getSimCards();
+for (var sim in simCards) {
+  print('SIM: ${sim['displayName']} - ${sim['carrierName']}');
+  print('Slot: ${sim['slotIndex']}, ID: ${sim['subscriptionId']}');
+}
 ```
 
 ### Cancel an active session
@@ -150,6 +129,8 @@ await UssdLauncher.cancelSession();
 | `getSimCards()` | Get list of available SIM cards with details |
 | `isAccessibilityEnabled()` | Check if accessibility service is enabled |
 | `openAccessibilitySettings()` | Open system accessibility settings |
+| `isOverlayPermissionGranted()` | Check if overlay permission is granted |
+| `openOverlaySettings()` | Open system overlay permission settings |
 | `cancelSession()` | Cancel the current USSD session |
 | `setUssdMessageListener()` | Set listener for USSD messages |
 | `removeUssdMessageListener()` | Remove the message listener |

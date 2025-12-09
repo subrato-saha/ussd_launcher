@@ -1,3 +1,17 @@
+## 1.4.0
+
+### New Features
+* **Invisible Overlay**: Added `UssdOverlayService` to hide system USSD dialogs during multi-session operations.
+* **Overlay Permissions**: Added `isOverlayPermissionGranted()` and `openOverlaySettings()` to manage overlay permissions.
+* **Robust Retry Mechanism**: Implemented smart retry logic for USSD input fields to handle slow devices/networks.
+* **Foreground Service**: Overlay service now runs as a foreground service with notification to prevent system kills on Android 8+.
+
+### Improvements
+* **Better Filtering**: Enhanced USSD message filtering to ignore system texts and button labels.
+* **Complete Content**: Now captures and returns the full content of USSD dialogs, not just the first line.
+* **Stability**: Fixed `RemoteServiceException` crashes on Android 8+ by properly implementing foreground service requirements.
+* **Documentation**: Comprehensive updates to README with overlay usage instructions.
+
 ## 1.3.0
 
 ### Major improvements

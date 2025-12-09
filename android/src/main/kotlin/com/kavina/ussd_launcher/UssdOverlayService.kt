@@ -15,12 +15,16 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.LinearLayout
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 
 class UssdOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
+    private val CHANNEL_ID = "UssdOverlayServiceChannel"
 
     companion object {
         private var instance: UssdOverlayService? = null
@@ -58,8 +62,32 @@ class UssdOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        
+        // Start foreground immediately to prevent crash
+        startForegroundService()
+        
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createOverlayView()
+    }
+
+    private fun startForegroundService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "USSD Overlay Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
+        }
+
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("USSD Launcher")
+            .setContentText("Opération USSD en cours...")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .build()
+
+        startForeground(1, notification)
     }
 
     private fun createOverlayView() {

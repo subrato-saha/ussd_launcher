@@ -18,13 +18,17 @@ class UssdMultiSession(private val context: Context) {
     private var callbackInvoke: CallbackInvoke? = null
     private var map: HashMap<String, HashSet<String>>? = null
     
-    // Configurable delays (in milliseconds)
-    var initialDelayMs: Long = 5000  // Wait 5s for first dialog
-    var optionDelayMs: Long = 4000   // Wait 4s between options
+    // Configurable delays (in milliseconds) - optimized for speed with robust detection
+    var initialDelayMs: Long = 3000  // Wait 3s for first dialog to appear
+    var optionDelayMs: Long = 2500   // Wait 2.5s between options for dialog transition
     var replyDelayMs: Long = 3000    // Wait 3s for dialog to render
     
     // Custom overlay message
     var overlayMessage: String = "Opération USSD en cours..."
+    
+    // Track session state
+    private var totalOptionsToSend = 0
+    private var optionsSentSuccessfully = 0
 
     companion object {
         private const val KEY_ERROR = "KEY_ERROR"
@@ -64,6 +68,20 @@ class UssdMultiSession(private val context: Context) {
         this.map = hashMap
         this.ussdOptionsQueue.clear()
         this.ussdOptionsQueue.addAll(options)
+        this.totalOptionsToSend = options.size
+        this.optionsSentSuccessfully = 0
+        
+        println("UssdMultiSession: ══════════════════════════════════════════════")
+        println("UssdMultiSession: Starting multi-session USSD")
+        println("UssdMultiSession: Code: $str")
+        println("UssdMultiSession: SIM Slot: $simSlot")
+        println("UssdMultiSession: Options to send: $options")
+        println("UssdMultiSession: Initial delay: ${initialDelayMs}ms")
+        println("UssdMultiSession: Option delay: ${optionDelayMs}ms")
+        println("UssdMultiSession: ══════════════════════════════════════════════")
+        
+        // Reset accessibility service state
+        UssdAccessibilityService.resetLastMessage()
         
         if (verifyAccessibilityAccess()) {
             dialUp(str, simSlot)
@@ -123,37 +141,60 @@ class UssdMultiSession(private val context: Context) {
         if (ussdOptionsQueue.isNotEmpty()) {
             val nextOption = ussdOptionsQueue.removeFirstOrNull()
             if (nextOption != null) {
+                optionsSentSuccessfully++
+                println("UssdMultiSession: ────────────────────────────────────────")
+                println("UssdMultiSession: Sending option $optionsSentSuccessfully/$totalOptionsToSend: '$nextOption'")
+                println("UssdMultiSession: Remaining options: ${ussdOptionsQueue.size}")
+                println("UssdMultiSession: ────────────────────────────────────────")
                 sendUssdOption(nextOption)
             }
         } else {
-            println("UssdMultiSession: All options processed, ending session")
-            try {
-                cancelSession()
-                stopOverlay()
-                this.callbackInvoke?.over("SESSION_COMPLETED")
-            } catch (e: Exception) {
-                println("UssdMultiSession: Error ending session: ${e.message}")
-                this.callbackInvoke?.over("SESSION_END_ERROR: ${e.message}")
-            }
+            println("UssdMultiSession: ══════════════════════════════════════════════")
+            println("UssdMultiSession: ✓ All $totalOptionsToSend options processed successfully")
+            println("UssdMultiSession: Ending session...")
+            println("UssdMultiSession: ══════════════════════════════════════════════")
+            
+            // Give time for the last response to be captured
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    cancelSession()
+                    stopOverlay()
+                    this.callbackInvoke?.over("SESSION_COMPLETED")
+                } catch (e: Exception) {
+                    println("UssdMultiSession: Error ending session: ${e.message}")
+                    this.callbackInvoke?.over("SESSION_END_ERROR: ${e.message}")
+                }
+            }, 2000)  // Wait 2s before ending to capture final response
         }
     }
 
     private fun sendUssdOption(option: String) {
         try {
-            println("UssdMultiSession: Sending option '$option'...")
+            // Send the option via accessibility service
             UssdAccessibilityService.sendReply(listOf(option))
             
             // Wait for the reply to be processed and next dialog to appear
+            // The accessibility service will handle the actual input and confirmation
             Handler(Looper.getMainLooper()).postDelayed({
                 // Check if there are more options
                 if (ussdOptionsQueue.isNotEmpty()) {
-                    println("UssdMultiSession: Waiting for next dialog before sending next option...")
+                    println("UssdMultiSession: Waiting ${optionDelayMs}ms for next dialog...")
                 }
                 sendNextUssdOption()
             }, optionDelayMs)
         } catch (e: Exception) {
-            println("UssdMultiSession: Error sending option: ${e.message}")
-            callbackInvoke?.over("SEND_OPTION_ERROR: ${e.message}")
+            println("UssdMultiSession: ❌ Error sending option '$option': ${e.message}")
+            e.printStackTrace()
+            
+            // Don't fail immediately - try to continue with remaining options
+            if (ussdOptionsQueue.isNotEmpty()) {
+                println("UssdMultiSession: Attempting to continue with remaining options...")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    sendNextUssdOption()
+                }, optionDelayMs)
+            } else {
+                callbackInvoke?.over("SEND_OPTION_ERROR: ${e.message}")
+            }
         }
     }
 

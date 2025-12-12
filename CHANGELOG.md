@@ -1,3 +1,22 @@
+## 1.5.0
+
+### New Features
+* **Custom Overlay Message**: Added `overlayMessage` parameter to `multisessionUssd()` to customize the overlay text during USSD operations.
+* **Enhanced Dialog Detection**: Improved detection of USSD dialogs including final response dialogs without input fields.
+
+### Improvements
+* **Robust Input Validation**: Now validates dialog presence (EditText + Buttons + TextView) before attempting input.
+* **Text Verification**: Confirms text was successfully inserted before clicking confirm button.
+* **Progressive Retry**: Retry delays now increase progressively (250ms to 1000ms) for better reliability.
+* **Increased Retries**: Maximum retries increased from 5 to 10 for slow networks.
+* **Faster Response**: Reduced delays by 50% when dialog is properly detected.
+* **Better Final Message Capture**: Improved capture of final USSD response messages.
+* **Extended Device Support**: Added more manufacturer-specific USSD packages (Asus, LG, Sony).
+
+### Bug Fixes
+* Fixed issue where options were displayed on overlay (now only shows custom message).
+* Improved memory management with proper recycling of AccessibilityNodeInfo objects.
+
 ## 1.4.0
 
 ### New Features

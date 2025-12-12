@@ -96,6 +96,7 @@ await UssdLauncher.multisessionUssd(
   options: ['1', '2', '3'],        // Menu options to select
   initialDelayMs: 3500,            // Optional: delay before first option
   optionDelayMs: 2000,             // Optional: delay between options
+  overlayMessage: 'Please wait...', // Optional: custom overlay message
 );
 
 // 3. Don't forget to remove listener when done

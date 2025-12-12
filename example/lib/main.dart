@@ -254,6 +254,7 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
         code: _ussdController.text,
         slotIndex: (_selectedSlotIndex ?? 0),
         options: options,
+        overlayMessage: 'Traitement en cours, veuillez patienter...',
       );
       // Aucun besoin de gérer 'res1' ici, les messages sont reçus via le listener
     } catch (e) {

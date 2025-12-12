@@ -40,6 +40,7 @@ class UssdLauncher {
   /// [options] - List of menu options to select automatically
   /// [initialDelayMs] - Delay before sending first option (default: 3500ms)
   /// [optionDelayMs] - Delay between options (default: 2000ms)
+  /// [overlayMessage] - Custom message to display on the overlay during the session
   ///
   /// Use [setUssdMessageListener] to receive USSD responses during the session.
   static Future<void> multisessionUssd({
@@ -48,6 +49,7 @@ class UssdLauncher {
     List<String> options = const [],
     int? initialDelayMs,
     int? optionDelayMs,
+    String? overlayMessage,
   }) async {
     try {
       await _channel.invokeMethod('multisessionUssd', {
@@ -56,6 +58,7 @@ class UssdLauncher {
         'options': options,
         if (initialDelayMs != null) 'initialDelayMs': initialDelayMs,
         if (optionDelayMs != null) 'optionDelayMs': optionDelayMs,
+        if (overlayMessage != null) 'overlayMessage': overlayMessage,
       });
     } on PlatformException catch (e) {
       print("UssdLauncher: Error in multi-session USSD: ${e.message}");

@@ -98,6 +98,7 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
         val ussdCode = call.argument<String>("ussdCode")
         val slotIndex = call.argument<Int>("slotIndex") ?: 0
         val options = call.argument<List<String>>("options") ?: emptyList()
+        val overlayMessage = call.argument<String>("overlayMessage")
         
         // Optional configurable delays
         call.argument<Int>("initialDelayMs")?.let { 
@@ -105,6 +106,11 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
         }
         call.argument<Int>("optionDelayMs")?.let { 
             ussdMultiSession.optionDelayMs = it.toLong() 
+        }
+        
+        // Custom overlay message
+        overlayMessage?.let {
+            ussdMultiSession.overlayMessage = it
         }
         
         if (ussdCode.isNullOrEmpty()) {

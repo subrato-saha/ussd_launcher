@@ -22,6 +22,9 @@ class UssdMultiSession(private val context: Context) {
     var initialDelayMs: Long = 5000  // Wait 5s for first dialog
     var optionDelayMs: Long = 4000   // Wait 4s between options
     var replyDelayMs: Long = 3000    // Wait 3s for dialog to render
+    
+    // Custom overlay message
+    var overlayMessage: String = "Opération USSD en cours..."
 
     companion object {
         private const val KEY_ERROR = "KEY_ERROR"
@@ -104,7 +107,7 @@ class UssdMultiSession(private val context: Context) {
             
             this.isRunning = true
             setHideDialogs(true)
-            startOverlay("Exécution du code USSD...")
+            startOverlay(overlayMessage)
             
             context.startActivity(getActionCallIntent(uri, simSlot))
 
@@ -138,7 +141,6 @@ class UssdMultiSession(private val context: Context) {
     private fun sendUssdOption(option: String) {
         try {
             println("UssdMultiSession: Sending option '$option'...")
-            updateOverlay("Envoi de l'option : $option")
             UssdAccessibilityService.sendReply(listOf(option))
             
             // Wait for the reply to be processed and next dialog to appear

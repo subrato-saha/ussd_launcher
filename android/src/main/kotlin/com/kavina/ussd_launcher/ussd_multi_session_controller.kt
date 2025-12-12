@@ -151,20 +151,27 @@ class UssdMultiSession(private val context: Context) {
         } else {
             println("UssdMultiSession: ══════════════════════════════════════════════")
             println("UssdMultiSession: ✓ All $totalOptionsToSend options processed successfully")
-            println("UssdMultiSession: Ending session...")
+            println("UssdMultiSession: Waiting for final USSD response...")
             println("UssdMultiSession: ══════════════════════════════════════════════")
             
-            // Give time for the last response to be captured
+            // Give more time for the last response to be captured
+            // The last dialog needs time to appear and be read by accessibility service
             Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    cancelSession()
-                    stopOverlay()
-                    this.callbackInvoke?.over("SESSION_COMPLETED")
-                } catch (e: Exception) {
-                    println("UssdMultiSession: Error ending session: ${e.message}")
-                    this.callbackInvoke?.over("SESSION_END_ERROR: ${e.message}")
-                }
-            }, 2000)  // Wait 2s before ending to capture final response
+                println("UssdMultiSession: Capturing final response...")
+                
+                // Wait additional time to ensure the last message is captured
+                Handler(Looper.getMainLooper()).postDelayed({
+                    try {
+                        println("UssdMultiSession: Ending session now...")
+                        cancelSession()
+                        stopOverlay()
+                        this.callbackInvoke?.over("SESSION_COMPLETED")
+                    } catch (e: Exception) {
+                        println("UssdMultiSession: Error ending session: ${e.message}")
+                        this.callbackInvoke?.over("SESSION_END_ERROR: ${e.message}")
+                    }
+                }, 2000)  // Additional 2s to capture the final message
+            }, optionDelayMs)  // First wait for the dialog to appear
         }
     }
 

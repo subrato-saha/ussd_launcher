@@ -578,16 +578,18 @@ class UssdAccessibilityService : AccessibilityService() {
             if (root != null) {
                 val hasInputField = findInputField(root) != null
                 val hasButtons = findNodesByClassName(root, "android.widget.Button").isNotEmpty()
+                val hasTextView = findNodesByClassName(root, "android.widget.TextView").isNotEmpty()
                 
-                if (hasInputField && hasButtons) {
-                    println("UssdAccessibilityService: ✓ Valid USSD dialog detected")
-                    notifyDialogReady()
+                // Any USSD dialog with buttons and text - always capture content first
+                if (hasButtons && hasTextView) {
+                    println("UssdAccessibilityService: ✓ USSD dialog detected (hasInput: $hasInputField)")
                     
-                    // Extract and send dialog content
+                    // ALWAYS extract and send dialog content first
                     extractAndSendDialogContent(root)
                     
-                    // Trigger reply if we have pending messages
-                    if (pendingMessages.isNotEmpty()) {
+                    // If it's an interactive dialog with input field AND we have pending messages
+                    if (hasInputField && pendingMessages.isNotEmpty()) {
+                        notifyDialogReady()
                         // Wait for dialog to stabilize before attempting reply
                         handler.removeCallbacksAndMessages(null)  // Cancel any pending attempts
                         handler.postDelayed({
@@ -595,6 +597,12 @@ class UssdAccessibilityService : AccessibilityService() {
                             retryCount = 0  // Reset retry count for new dialog
                             tryPerformReply()
                         }, DIALOG_STABILITY_DELAY_MS)
+                    } else if (hasInputField) {
+                        // Interactive dialog but no pending messages - this is the final response
+                        println("UssdAccessibilityService: ✓ Final interactive dialog (no more options to send)")
+                    } else {
+                        // Dialog without input field - final message
+                        println("UssdAccessibilityService: ✓ Final USSD dialog (no input field)")
                     }
                 }
                 root.recycle()
@@ -616,16 +624,19 @@ class UssdAccessibilityService : AccessibilityService() {
                 // Check if dialog is now ready (has all required elements)
                 val hasInputField = findInputField(root) != null
                 val hasButtons = findNodesByClassName(root, "android.widget.Button").isNotEmpty()
+                val hasTextView = findNodesByClassName(root, "android.widget.TextView").isNotEmpty()
                 
-                if (hasInputField && hasButtons && !isDialogReady) {
-                    println("UssdAccessibilityService: ✓ Dialog content ready")
-                    notifyDialogReady()
-                    
-                    // Extract content
+                // Any USSD dialog with buttons and text
+                if (hasButtons && hasTextView) {
+                    // ALWAYS extract and send dialog content
                     extractAndSendDialogContent(root)
                     
-                    // Trigger reply
-                    checkAndTriggerReply()
+                    // If interactive dialog with pending messages, trigger reply
+                    if (hasInputField && pendingMessages.isNotEmpty() && !isDialogReady) {
+                        println("UssdAccessibilityService: ✓ Dialog content ready, will send reply")
+                        notifyDialogReady()
+                        checkAndTriggerReply()
+                    }
                 }
                 root.recycle()
             }

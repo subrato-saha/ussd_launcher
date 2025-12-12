@@ -156,10 +156,11 @@ class MultiSessionTab extends StatefulWidget {
 class _MultiSessionTabState extends State<MultiSessionTab> {
   final TextEditingController _ussdController = TextEditingController();
   final List<TextEditingController> _optionControllers = [];
-  String _lastUssdResponse = ''; // Dernier message USSD reçu
+  final List<String> _ussdMessages = []; // Tous les messages USSD reçus
   bool _isLoading = false;
   List<Map<String, dynamic>> _simCards = [];
   int? _selectedSlotIndex;
+  final ScrollController _scrollController = ScrollController();
 
   String _sessionStatus = '';
 
@@ -183,8 +184,20 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
         _sessionStatus = "Session USSD terminée.";
         _isLoading = false;
       } else {
-        // Ne garder que le dernier message USSD significatif
-        _lastUssdResponse = message;
+        // Ajouter le message à la liste avec numéro d'étape
+        final stepNumber = _ussdMessages.length + 1;
+        _ussdMessages.add("── Étape $stepNumber ──\n$message");
+      }
+    });
+
+    // Scroll automatique vers le bas
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -242,7 +255,7 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
   void _launchMultiSessionUssd() async {
     setState(() {
       _isLoading = true;
-      _lastUssdResponse = ''; // Réinitialiser au début d'une nouvelle session
+      _ussdMessages.clear(); // Réinitialiser au début d'une nouvelle session
       _sessionStatus = '';
     });
 
@@ -258,18 +271,14 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
       );
       // Aucun besoin de gérer 'res1' ici, les messages sont reçus via le listener
     } catch (e) {
-      _updateUssdMessages('\nErreur : ${e.toString()}');
+      setState(() {
+        _ussdMessages.add('❌ Erreur : ${e.toString()}');
+      });
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
-  }
-
-  void _updateUssdMessages(String newText) {
-    setState(() {
-      _lastUssdResponse = newText;
-    });
   }
 
   void _addOptionField() {
@@ -362,26 +371,39 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
                 style: TextStyle(fontWeight: FontWeight.bold)),
             Container(
               width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 100),
+              constraints: const BoxConstraints(minHeight: 150, maxHeight: 300),
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.blueAccent),
                 borderRadius: BorderRadius.circular(8.0),
                 color: Colors.grey[50],
               ),
               padding: const EdgeInsets.all(12.0),
-              child: _lastUssdResponse.isEmpty
-                  ? const Text(
-                      'En attente de réponse...',
-                      style: TextStyle(
-                          color: Colors.grey, fontStyle: FontStyle.italic),
-                    )
-                  : Text(
-                      _lastUssdResponse,
-                      style: const TextStyle(
-                        color: Colors.blue,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+              child: _ussdMessages.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'En attente de réponse...',
+                        style: TextStyle(
+                            color: Colors.grey, fontStyle: FontStyle.italic),
                       ),
+                    )
+                  : ListView.separated(
+                      controller: _scrollController,
+                      shrinkWrap: true,
+                      itemCount: _ussdMessages.length,
+                      separatorBuilder: (context, index) => const Divider(
+                        height: 16,
+                        color: Colors.blueAccent,
+                      ),
+                      itemBuilder: (context, index) {
+                        return Text(
+                          _ussdMessages[index],
+                          style: const TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        );
+                      },
                     ),
             ),
             const SizedBox(height: 16),
@@ -404,6 +426,7 @@ class _MultiSessionTabState extends State<MultiSessionTab> {
       controller.dispose();
     }
     _ussdController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 }

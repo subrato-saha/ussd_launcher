@@ -157,6 +157,11 @@ class UssdLauncher {
     }
   }
 
+  static Future<void> pushOption(String option) async {
+    await _channel.invokeMethod('pushOption', {
+      'option': option,
+    });
+  }
 
   static Future<String?> sendNextOption() async {
     try {

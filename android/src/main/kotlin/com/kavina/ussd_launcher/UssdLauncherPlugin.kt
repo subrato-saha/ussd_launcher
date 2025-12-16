@@ -51,6 +51,10 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
             "sendNextOption" -> {
                 ussdMultiSession.sendNextOptionManually(result)
             }
+            "pushOption" -> {
+                val option = call.argument<String>("option") ?: ""
+                ussdMultiSession.pushOption(option, result)
+            }
             "openAccessibilitySettings" -> {
                 openAccessibilitySettings()
                 result.success(null)

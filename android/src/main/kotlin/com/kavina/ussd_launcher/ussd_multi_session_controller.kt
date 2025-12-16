@@ -286,6 +286,16 @@ class UssdMultiSession(private val context: Context) {
         }
     }
 
+    fun pushOption(option: String, result: Result) {
+        if (!isRunning) {
+            result.error("NO_ACTIVE_SESSION", "No active USSD session", null)
+            return
+        }
+        ussdOptionsQueue.addFirst(option)
+        result.success("OPTION_QUEUED")
+    }
+
+
     fun sendNextOptionManually(result: Result? = null) {
         if (!isRunning) {
             result?.error("NO_ACTIVE_SESSION", "No active USSD session", null)

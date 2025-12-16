@@ -48,6 +48,9 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
             "multisessionUssd" -> handleMultisessionUssd(call, result)
             "getSimCards" -> ussdSessionUnique.getSimCards(result)
             "isAccessibilityEnabled" -> result.success(isAccessibilityServiceEnabled())
+            "sendNextOption" -> {
+                ussdMultiSession.sendNextOptionManually(result)
+            }
             "openAccessibilitySettings" -> {
                 openAccessibilitySettings()
                 result.success(null)

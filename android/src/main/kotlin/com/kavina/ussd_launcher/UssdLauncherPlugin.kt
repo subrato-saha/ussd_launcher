@@ -16,7 +16,6 @@ class UssdLauncherPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var context: Context
     private lateinit var ussdSessionUnique: UssdSessionUnique
     private lateinit var ussdMultiSession: UssdMultiSession
-    private var interactiveMode = false
 
     companion object {
         private var methodChannel: MethodChannel? = null

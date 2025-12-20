@@ -70,6 +70,7 @@ class UssdMultiSession(private val context: Context) {
         this.ussdOptionsQueue.addAll(options)
         this.totalOptionsToSend = options.size
         this.optionsSentSuccessfully = 0
+        interactiveMode = options.isEmpty()
         
         println("UssdMultiSession: ══════════════════════════════════════════════")
         println("UssdMultiSession: Starting multi-session USSD")
@@ -112,6 +113,11 @@ class UssdMultiSession(private val context: Context) {
             this.callbackInvoke?.over("BAD_MAPPING_STRUCTURE")
             return
         }
+        Handler.postDelayed({
+    if (!interactiveMode) {
+        sendNextUssdOption()
+    }
+}, initialDelayMs)
         
         if (str.isEmpty()) {
             this.callbackInvoke?.over("EMPTY_USSD_CODE")
@@ -149,6 +155,10 @@ class UssdMultiSession(private val context: Context) {
                 sendUssdOption(nextOption)
             }
         } else {
+            if (interactiveMode) {
+            println("UssdMultiSession: Interactive mode — waiting for Flutter input")
+            return
+        }
             println("UssdMultiSession: ══════════════════════════════════════════════")
             println("UssdMultiSession: ✓ All $totalOptionsToSend options processed successfully")
             println("UssdMultiSession: Waiting for final USSD response...")
